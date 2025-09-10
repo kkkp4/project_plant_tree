@@ -1,0 +1,11 @@
+run teleop_serial
+
+cd ~/ros2_ws
+source ~/.bashrc
+ros2 run teleop_serial teleop_serial
+python3 src/teleop_serial/teleop_serial/teleop_serial.py
+
+run camera
+
+python3 camerausb.py
+http://<IP_RASPBERRY_PI>:5000/video
