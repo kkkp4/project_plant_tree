@@ -8,7 +8,7 @@ struct Motor {
 };
 
 Motor motors[4] = {
-  {5, 18, 0, 1},    // Motor 1
+  {4, 18, 0, 1},    // Motor 1
   {21, 22, 2, 3},   // Motor 2
   {19, 23, 4, 5},   // Motor 3 
   {32, 33, 6, 7}    // Motor 4
