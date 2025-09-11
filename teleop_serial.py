@@ -52,9 +52,6 @@ class TeleopSerial(Node):
             elif key == '-':
                 self.speed = max(0, self.speed - 10)
                 self.get_logger().info(f"Speed decreased: {self.speed}")
-            elif key == 'q':
-                self.get_logger().info("Exiting teleop...")
-                break
             # Stepper 1
             elif key == 'j':
                 self.send_cmd('STEP1_FWD')
