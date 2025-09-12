@@ -43,9 +43,9 @@ class TeleopSerial(Node):
             elif key == 's':
                 self.send_cmd('B')
             elif key == 'a':
-                self.send_cmd('L')
-            elif key == 'd':
                 self.send_cmd('R')
+            elif key == 'd':
+                self.send_cmd('L')
             elif key == ' ':
                 self.send_cmd('S')
             # speed
