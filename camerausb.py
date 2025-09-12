@@ -3,6 +3,10 @@ import cv2
 
 app = Flask(__name__)
 camera = cv2.VideoCapture(0)  # ใช้ /dev/video0
+# ตั้งค่าขนาดและ FPS ของกล้อง
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)   # ความกว้าง
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)  # ความสูง
+camera.set(cv2.CAP_PROP_FPS, 30)            # จำนวนเฟรมต่อวินาที
 
 def generate_frames():
     while True:
