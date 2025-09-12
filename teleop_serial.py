@@ -9,7 +9,7 @@ class TeleopSerial(Node):
         self.ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
         self.speed = 100
         self.get_logger().info(
-            "Teleop ready!\n"ห
+            "Teleop ready!\n"
             "Controls:\n"
             "  w = Forward, s = Backward, a = Left, d = Right\n"
             "  Space = Stop, + = Speed Up, - = Speed Down\n"
