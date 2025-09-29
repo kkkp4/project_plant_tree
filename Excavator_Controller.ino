@@ -4,6 +4,7 @@
 
 // --------- Pin Config ---------
 #define SERVO1_PIN       4
+#define SERVO2_PIN       5
 
 // Stepper 1 (ใช้ Step/Dir)
 #define STEP1_STEP_PIN   18
@@ -19,12 +20,15 @@
 
 // --------- Global Variables ---------
 Servo servo1;
-bool servo1State = false;     // toggle 0° ↔ 150°
-bool motor1State = false;     // toggle ทำงาน ↔ หยุด
+Servo servo2;
 
-int speedVal = 100;           // ค่า speed จาก Pi (ใช้คุม stepper และมอเตอร์)
+bool servo1State = false;     // Servo1 toggle 0° ↔ 150°
+bool servo2State = false;     // Servo2 toggle 0° ↔ 90°
+bool motor1State = false;     // DC Motor toggle ON/OFF
 
-bool stopAll = false;         // flag สำหรับ STOP_ALL
+int speedVal = 100;           // ค่า speed จาก Pi (ใช้คุม stepper และ motor)
+
+bool stopAll = false;         // STOP_ALL flag
 
 // --------- Helper Functions ---------
 void stepperMove(int stepPin, int dirPin, bool forward, int steps, int spd) {
@@ -61,8 +65,9 @@ void motor1Toggle(int spd) {
 void stopAllMotorsAndServos() {
   stopAll = true;
 
-  // Servo reset to 0
+  // Servo reset
   servo1.write(0);
+  servo2.write(0);
 
   // Stepper จะหยุดทันที (loop เช็ค stopAll)
   // DC Motor OFF
@@ -79,6 +84,8 @@ void setup() {
   // Servo setup
   servo1.attach(SERVO1_PIN);
   servo1.write(0);
+  servo2.attach(SERVO2_PIN);
+  servo2.write(0);
 
   // Stepper setup
   pinMode(STEP1_STEP_PIN, OUTPUT);
@@ -91,7 +98,7 @@ void setup() {
   ledcSetup(0, 5000, 8);         // channel 0, freq 5kHz, 8-bit
   ledcAttachPin(MOTOR1_PWM_PIN, 0);
 
-  Serial.println("ESP32 ready (Servo1 + Stepper1 + Stepper2 + DC Motor1)!");
+  Serial.println("ESP32 ready (Servo1 + Servo2 + Stepper1 + Stepper2 + DC Motor1)!");
 }
 
 // --------- Loop ---------
@@ -129,6 +136,12 @@ void loop() {
     else if (action == "SERVO1_TOGGLE") {
       servo1State = !servo1State;
       servo1.write(servo1State ? 150 : 0);
+    }
+
+    // -------- Servo2 control --------
+    else if (action == "SERVO2_TOGGLE") {
+      servo2State = !servo2State;
+      servo2.write(servo2State ? 90 : 0);
     }
 
     // -------- DC Motor1 control --------
