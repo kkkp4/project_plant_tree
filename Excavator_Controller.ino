@@ -145,16 +145,30 @@ void loop() {
     }
 
     // -------- Servo1 control --------
-    else if (action == "SERVO1_TOGGLE") {
-      servo1State = !servo1State;
-      servo1.write(servo1State ? 150 : 0);
+    else if (action == "SERVO2_TOGGLE") {
+    servo2State = !servo2State;   // toggle state
+
+    if (servo2State) {
+      servo2.write(90);
+      Serial.println("Servo2 → 90°");
+    } else {
+      servo2.write(0);
+      Serial.println("Servo2 → 0°");
     }
+  }
 
     // -------- Servo2 control --------
     else if (action == "SERVO2_TOGGLE") {
-      servo2State = !servo2State;
-      servo2.write(servo2State ? 90 : 0);
+    servo2State = !servo2State;   // toggle state
+
+    if (servo2State) {
+      servo2.write(90);
+      Serial.println("Servo2 → 90°");
+    } else {
+      servo2.write(0);
+      Serial.println("Servo2 → 0°");
     }
+  }
 
     // -------- DC Motor1 control --------
     else if (action == "MOTOR1_TOGGLE") {
