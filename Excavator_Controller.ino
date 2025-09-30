@@ -71,7 +71,7 @@ void stopAllMotorsAndServos() {
   stopAll = true;
 
   // Servo reset
-  servo1.write(0);
+  servo1.write(70);
   servo2.write(0);
 
   // ปิด Stepper ทั้งหมด
@@ -91,7 +91,7 @@ void setup() {
 
   // Servo setup
   servo1.attach(SERVO1_PIN);
-  servo1.write(0);
+  servo1.write(70);
   servo2.attach(SERVO2_PIN);
   servo2.write(0);
 
@@ -145,15 +145,15 @@ void loop() {
     }
 
     // -------- Servo1 control --------
-    else if (action == "SERVO2_TOGGLE") {
-    servo2State = !servo2State;   // toggle state
+    else if (action == "SERVO1_TOGGLE") {
+    servo1State = !servo1State;   // toggle state
 
-    if (servo2State) {
-      servo2.write(90);
-      Serial.println("Servo2 → 90°");
+    if (servo1State) {
+      servo1.write(155);
+      Serial.println("Servo2 → 155°");
     } else {
-      servo2.write(0);
-      Serial.println("Servo2 → 0°");
+      servo1.write(70);
+      Serial.println("Servo2 → 70°");
     }
   }
 
