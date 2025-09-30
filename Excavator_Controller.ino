@@ -149,8 +149,8 @@ void loop() {
     servo1State = !servo1State;   // toggle state
 
     if (servo1State) {
-      servo1.write(155);
-      Serial.println("Servo2 → 155°");
+      servo1.write(150);
+      Serial.println("Servo2 → 150°");
     } else {
       servo1.write(70);
       Serial.println("Servo2 → 70°");
