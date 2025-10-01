@@ -1,34 +1,183 @@
 #include <Arduino.h>
+#include <AccelStepper.h>
 #include <ESP32Servo.h>
 
-#define SERVO_PIN 4   // Pin ที่ต่อกับ SG90
+// --------- Pin Config ---------
+#define SERVO1_PIN       4
+#define SERVO2_PIN       5
 
-Servo myservo;
-bool servoState = false;  // false = 70°, true = 150°
+// Stepper 1 (Step/Dir/EN)
+#define STEP1_STEP_PIN   18
+#define STEP1_DIR_PIN    19
+#define STEP1_EN_PIN     23   // NEW: Enable Pin
 
-void setup() {
-  Serial.begin(115200);
-  myservo.attach(SERVO_PIN);  // SG90 ใช้ค่า default ก็พอ
+// Stepper 2 (Step/Dir/EN)
+#define STEP2_STEP_PIN   21
+#define STEP2_DIR_PIN    22
+#define STEP2_EN_PIN     27   // NEW: Enable Pin
 
-  myservo.write(70);  // เริ่มที่ 70°
-  Serial.println("=== SG90 Toggle Test ===");
-  Serial.println("พิมพ์ z ใน Serial Monitor เพื่อหมุน Servo 70° ↔ 150°");
+// DC Motor1 (H-Bridge PWM + DIR)
+#define MOTOR1_PWM_PIN   25
+#define MOTOR1_DIR_PIN   26
+
+// --------- Global Variables ---------
+Servo servo1;
+Servo servo2;
+
+bool servo1State = false;     // Servo1 toggle 0° ↔ 150°
+bool servo2State = false;     // Servo2 toggle 0° ↔ 90°
+bool motor1State = false;     // DC Motor toggle ON/OFF
+
+int speedVal = 100;           // ค่า speed จาก Pi
+bool stopAll = false;         // STOP_ALL flag
+
+// --------- Helper Functions ---------
+void stepperMove(int stepPin, int dirPin, int enPin, bool forward, int steps, int spd) {
+  if (stopAll) return;
+
+  // เปิดการทำงานของ Stepper (Active Low)
+  digitalWrite(enPin, LOW);
+  digitalWrite(dirPin, forward ? HIGH : LOW);
+
+  int delay_us = map(spd, 0, 255, 2000, 300); // speed control
+
+  for (int i = 0; i < steps; i++) {
+    if (stopAll) break;
+    digitalWrite(stepPin, HIGH);
+    delayMicroseconds(delay_us);
+    digitalWrite(stepPin, LOW);
+    delayMicroseconds(delay_us);
+  }
+
+  // ปิดการทำงานของ Stepper หลังจบการหมุน
+  digitalWrite(enPin, HIGH);
 }
 
+void motor1Toggle(int spd) {
+  if (motor1State) {
+    ledcWrite(0, 0);
+    Serial.println("Motor1 OFF");
+    motor1State = false;
+  } else {
+    digitalWrite(MOTOR1_DIR_PIN, HIGH);
+    int pwm = map(spd, 0, 255, 0, 255);
+    ledcWrite(0, pwm);
+    Serial.println("Motor1 ON");
+    motor1State = true;
+  }
+}
+
+void stopAllMotorsAndServos() {
+  stopAll = true;
+
+  // Servo reset
+  servo1.write(70);
+  servo2.write(0);
+
+  // ปิด Stepper ทั้งหมด
+  digitalWrite(STEP1_EN_PIN, HIGH);
+  digitalWrite(STEP2_EN_PIN, HIGH);
+
+  // DC Motor OFF
+  ledcWrite(0, 0);
+  motor1State = false;
+
+  Serial.println("ALL STOP!");
+}
+
+// --------- Setup ---------
+void setup() {
+  Serial.begin(115200);
+
+  // Servo setup
+  servo1.attach(SERVO1_PIN);
+  servo1.write(70);
+  servo2.attach(SERVO2_PIN);
+  servo2.write(0);
+
+  // Stepper setup
+  pinMode(STEP1_STEP_PIN, OUTPUT);
+  pinMode(STEP1_DIR_PIN, OUTPUT);
+  pinMode(STEP1_EN_PIN, OUTPUT);
+  digitalWrite(STEP1_EN_PIN, HIGH); // เริ่มต้นปิด
+
+  pinMode(STEP2_STEP_PIN, OUTPUT);
+  pinMode(STEP2_DIR_PIN, OUTPUT);
+  pinMode(STEP2_EN_PIN, OUTPUT);
+  digitalWrite(STEP2_EN_PIN, HIGH); // เริ่มต้นปิด
+
+  // Motor1 setup (PWM + DIR)
+  pinMode(MOTOR1_DIR_PIN, OUTPUT);
+  ledcSetup(0, 5000, 8); // channel 0, freq 5kHz, 8-bit
+  ledcAttachPin(MOTOR1_PWM_PIN, 0);
+
+  Serial.println("ESP32 ready (Servo1 + Servo2 + Stepper1 + Stepper2 + DC Motor1 + EN pins)!");
+}
+
+// --------- Loop ---------
 void loop() {
-  if (Serial.available() > 0) {
-    char c = Serial.read();
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
 
-    if (c == 'z' || c == 'Z') {
-      servoState = !servoState;  // toggle state
+    // แยก command และ speed
+    int sep = cmd.indexOf(':');
+    String action = cmd.substring(0, sep);
+    int spd = cmd.substring(sep + 1).toInt();
 
-      if (servoState) {
-        myservo.write(150);
-        Serial.println("Servo → 150°");
-      } else {
-        myservo.write(70);
-        Serial.println("Servo → 70°");
-      }
+    if (spd > 0) speedVal = spd;
+    if (action != "STOP_ALL") stopAll = false;
+
+    Serial.print("Recv: ");
+    Serial.print(action);
+    Serial.print(" | Speed: ");
+    Serial.println(speedVal);
+
+    // -------- Stepper control --------
+    if (action == "STEP1_FWD") {
+      stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, true, 200, speedVal);
+    }
+    else if (action == "STEP1_BWD") {
+      stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, false, 200, speedVal);
+    }
+    else if (action == "STEP2_45") {
+      stepperMove(STEP2_STEP_PIN, STEP2_DIR_PIN, STEP2_EN_PIN, true, 25, speedVal);
+    }
+
+    // -------- Servo1 control --------
+    else if (action == "SERVO1_TOGGLE") {
+    servo1State = !servo1State;   // toggle state
+
+    if (servo1State) {
+      servo1.write(150);
+      Serial.println("Servo1 → 150°");
+    } else {
+      servo1.write(70);
+      Serial.println("Servo1 → 70°");
+    }
+  }
+
+    // -------- Servo2 control --------
+    else if (action == "SERVO2_TOGGLE") {
+    servo2State = !servo2State;   // toggle state
+
+    if (servo2State) {
+      servo2.write(90);
+      Serial.println("Servo2 → 90°");
+    } else {
+      servo2.write(0);
+      Serial.println("Servo2 → 0°");
+    }
+  }
+
+    // -------- DC Motor1 control --------
+    else if (action == "MOTOR1_TOGGLE") {
+      motor1Toggle(speedVal);
+    }
+
+    // -------- STOP ALL --------
+    else if (action == "STOP_ALL") {
+      stopAllMotorsAndServos();
     }
   }
 }
