@@ -150,10 +150,10 @@ void loop() {
 
     if (servo1State) {
       servo1.write(150);
-      Serial.println("Servo2 → 150°");
+      Serial.println("Servo1 → 150°");
     } else {
       servo1.write(70);
-      Serial.println("Servo2 → 70°");
+      Serial.println("Servo1 → 70°");
     }
   }
 
