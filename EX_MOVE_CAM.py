@@ -28,7 +28,7 @@ class TeleopSerial(Node):
             "  j = Stepper1 Forward 1 rev\n"
             "  k = Stepper1 Backward 1 rev\n"
             "  l = Stepper2 +45° (incremental)\n"
-            "  o = Servo1 Toggle (0° ↔ 150°)\n"
+            "  o = Servo1 Toggle (70° ↔ 150°)\n"
             "  u = Servo2 Toggle (0° ↔ 90°)\n"
             "  i = DC Motor1 Toggle (ON/OFF)\n"
             "  q = Quit\n"
