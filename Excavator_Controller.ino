@@ -67,24 +67,6 @@ void motor1Toggle(int spd) {
   }
 }
 
-void stopAllMotorsAndServos() {
-  stopAll = true;
-
-  // Servo reset
-  servo1.write(70);
-  servo2.write(0);
-
-  // ปิด Stepper ทั้งหมด
-  digitalWrite(STEP1_EN_PIN, HIGH);
-  digitalWrite(STEP2_EN_PIN, HIGH);
-
-  // DC Motor OFF
-  ledcWrite(0, 0);
-  motor1State = false;
-
-  Serial.println("ALL STOP!");
-}
-
 // --------- Setup ---------
 void setup() {
   Serial.begin(115200);
@@ -173,11 +155,6 @@ void loop() {
     // -------- DC Motor1 control --------
     else if (action == "MOTOR1_TOGGLE") {
       motor1Toggle(speedVal);
-    }
-
-    // -------- STOP ALL --------
-    else if (action == "STOP_ALL") {
-      stopAllMotorsAndServos();
     }
   }
 }
