@@ -2,6 +2,7 @@
 #include <AccelStepper.h>
 #include <ESP32Servo.h>
 
+
 // --------- Pin Config ---------
 #define SERVO1_PIN       4
 #define SERVO2_PIN       5
@@ -31,7 +32,6 @@ bool motor1State = false;     // DC Motor toggle ON/OFF
 int speedVal = 100;           // ค่า speed จาก Pi
 bool stopAll = false;         // STOP_ALL flag
 
-// --------- Helper Functions ---------
 void stepperMove(int stepPin, int dirPin, int enPin, bool forward, int steps, int spd) {
   if (stopAll) return;
 
@@ -67,34 +67,11 @@ void motor1Toggle(int spd) {
   }
 }
 
-void stopAllMotorsAndServos() {
-  stopAll = true;
-
-  // Servo reset
-  servo1.write(70);
-  servo2.write(0);
-
-  // ปิด Stepper ทั้งหมด
-  digitalWrite(STEP1_EN_PIN, HIGH);
-  digitalWrite(STEP2_EN_PIN, HIGH);
-
-  // DC Motor OFF
-  ledcWrite(0, 0);
-  motor1State = false;
-
-  Serial.println("ALL STOP!");
-}
-
-// --------- Setup ---------
 void setup() {
   Serial.begin(115200);
-
-  // Servo setup
-  servo1.attach(SERVO1_PIN);
-  servo1.write(70);
-  servo2.attach(SERVO2_PIN);
-  servo2.write(0);
-
+  delay(50);
+  Serial.println("\n=== ESP32 Servo Debug Ready ===");
+  
   // Stepper setup
   pinMode(STEP1_STEP_PIN, OUTPUT);
   pinMode(STEP1_DIR_PIN, OUTPUT);
@@ -110,74 +87,86 @@ void setup() {
   pinMode(MOTOR1_DIR_PIN, OUTPUT);
   ledcSetup(0, 5000, 8); // channel 0, freq 5kHz, 8-bit
   ledcAttachPin(MOTOR1_PWM_PIN, 0);
-
-  Serial.println("ESP32 ready (Servo1 + Servo2 + Stepper1 + Stepper2 + DC Motor1 + EN pins)!");
+  
+  // attach with safe pulse range for SG90 (500..2400us)
+  servo1.attach(SERVO1_PIN, 500, 2400);
+  servo1.writeMicroseconds(1500); // neutral
+  servo2.attach(SERVO2_PIN, 500, 2400);
+  servo2.writeMicroseconds(1500); // neutral
+  delay(500);
+  Serial.println("Servo attached on GPIO4 (500..2400us).");
 }
 
-// --------- Loop ---------
+String readLine() {
+  // non-blocking readStringUntil is OK but we implement simple blocking read for debug
+  String s = "";
+  unsigned long start = millis();
+  // wait up to 2000 ms for something
+  while (millis() - start < 2000) {
+    while (Serial.available()) {
+      char c = Serial.read();
+      s += c;
+      if (c == '\n') return s;
+    }
+    delay(5);
+  }
+  return s;
+}
+
 void loop() {
-  if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim();
+  String cmd = readLine();
+  if (cmd.length() == 0) {
+    // no data received within timeout
+    delay(10);
+    return;
+  }
 
-    // แยก command และ speed
-    int sep = cmd.indexOf(':');
-    String action = cmd.substring(0, sep);
-    int spd = cmd.substring(sep + 1).toInt();
+  // trim CR/LF and spaces
+  cmd.trim();
+  //debugPrintRaw(cmd);
 
-    if (spd > 0) speedVal = spd;
-    if (action != "STOP_ALL") stopAll = false;
+  // Simple parsing:
+  int sep = cmd.indexOf(':');
+  if (sep == -1) {
+    Serial.println("No ':' found. Expected format: KEY:VALUE");
+    return;
+  }
+  String key = cmd.substring(0, sep);
+  String valStr = cmd.substring(sep + 1);
+  valStr.trim();
 
-    Serial.print("Recv: ");
-    Serial.print(action);
-    Serial.print(" | Speed: ");
-    Serial.println(speedVal);
+  Serial.printf("Parsed KEY='%s', VAL='%s'\n", key.c_str(), valStr.c_str());
 
-    // -------- Stepper control --------
-    if (action == "STEP1_FWD") {
+  if (key.equalsIgnoreCase("SERVO1")) {
+    int angle = valStr.toInt(); // 0..180
+    angle = constrain(angle, 0, 180);
+    int us = map(angle, 0, 180, 500, 2400); // SG90 mapping
+    servo1.writeMicroseconds(us);
+    Serial.printf("-> Servo1 angle %d -> %d us\n", angle, us);
+    }
+    else if (key.equalsIgnoreCase("STEP1_FWD")) {
+      int speedVal = valStr.toInt(); // 0..180
       stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, true, 200, speedVal);
     }
-    else if (action == "STEP1_BWD") {
+    else if (key.equalsIgnoreCase("STEP1_BWD")) {
+      int speedVal = valStr.toInt(); // 0..180
       stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, false, 200, speedVal);
     }
-    else if (action == "STEP2_45") {
+    else if (key.equalsIgnoreCase("STEP2_45")) {
+      int speedVal = valStr.toInt(); // 0..180
       stepperMove(STEP2_STEP_PIN, STEP2_DIR_PIN, STEP2_EN_PIN, true, 25, speedVal);
+    } 
+    else if (key.equalsIgnoreCase("SERVO2")) {
+    int angle = valStr.toInt(); // 0..180
+    angle = constrain(angle, 0, 180);
+    int us = map(angle, 0, 180, 500, 2400); // SG90 mapping
+    servo2.writeMicroseconds(us);
+    Serial.printf("-> Servo2 angle %d -> %d us\n", angle, us);
     }
-
-    // -------- Servo1 control --------
-    else if (action == "SERVO1_TOGGLE") {
-    servo1State = !servo1State;   // toggle state
-
-    if (servo1State) {
-      servo1.write(150);
-      Serial.println("Servo1 → 150°");
-    } else {
-      servo1.write(70);
-      Serial.println("Servo1 → 70°");
-    }
-  }
-
-    // -------- Servo2 control --------
-    else if (action == "SERVO2_TOGGLE") {
-    servo2State = !servo2State;   // toggle state
-
-    if (servo2State) {
-      servo2.write(90);
-      Serial.println("Servo2 → 90°");
-    } else {
-      servo2.write(0);
-      Serial.println("Servo2 → 0°");
-    }
-  }
-
-    // -------- DC Motor1 control --------
-    else if (action == "MOTOR1_TOGGLE") {
+    else if (key.equalsIgnoreCase("MOTOR1_TOGGLE")) {
+      int speedVal = 110;
       motor1Toggle(speedVal);
-    }
-
-    // -------- STOP ALL --------
-    else if (action == "STOP_ALL") {
-      stopAllMotorsAndServos();
-    }
+    } else {
+    Serial.println("Unknown command key.");
   }
 }
