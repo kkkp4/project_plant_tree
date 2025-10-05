@@ -16,6 +16,10 @@
 #define STEP2_STEP_PIN   21
 #define STEP2_DIR_PIN    22
 #define STEP2_EN_PIN     27   // NEW: Enable Pin
+AccelStepper stepper2(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
+const float DEGREE_PER_STEP = 1.8;             // สำหรับ full step
+const int STEPS_PER_45_DEG = 45 / DEGREE_PER_STEP;  // 45° = 25 steps
+long targetPosition = 0;
 
 // DC Motor1 (H-Bridge PWM + DIR)
 #define MOTOR1_PWM_PIN   25
@@ -82,6 +86,8 @@ void setup() {
   pinMode(STEP2_DIR_PIN, OUTPUT);
   pinMode(STEP2_EN_PIN, OUTPUT);
   digitalWrite(STEP2_EN_PIN, HIGH); // เริ่มต้นปิด
+  stepper2.setMaxSpeed(1000);     // steps/sec
+  stepper2.setAcceleration(500);  // steps/sec^2
 
   // Motor1 setup (PWM + DIR)
   pinMode(MOTOR1_DIR_PIN, OUTPUT);
@@ -153,8 +159,17 @@ void loop() {
       stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, false, 200, speedVal);
     }
     else if (key.equalsIgnoreCase("STEP2_45")) {
-      int speedVal = valStr.toInt(); // 0..180
-      stepperMove(STEP2_STEP_PIN, STEP2_DIR_PIN, STEP2_EN_PIN, true, 25, speedVal);
+      digitalWrite(EN_PIN, LOW);
+      // ตั้งเป้าหมายใหม่
+      targetPosition += STEPS_PER_45_DEG;
+      stepper.moveTo(targetPosition);
+      // หมุนไปจนถึงเป้าหมาย
+      while (stepper.distanceToGo() != 0) {
+        stepper.run();
+      }
+      delay(1000);
+      // ปิดมอเตอร์หลังหมุนเสร็จ
+      digitalWrite(EN_PIN, HIGH);
     } 
     else if (key.equalsIgnoreCase("SERVO2")) {
     int angle = valStr.toInt(); // 0..180
@@ -170,3 +185,4 @@ void loop() {
     Serial.println("Unknown command key.");
   }
 }
+
