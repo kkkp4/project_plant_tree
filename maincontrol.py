@@ -39,10 +39,10 @@ class TeleopSerial(Node):
             actions = {
                 'w': 'F', 's': 'B', 'a': 'L', 'd': 'R', ' ': 'STOP_ALL',
                 'j': 'STEP1_FWD', 'k': 'STEP1_BWD', 'l': 'STEP2_45',
-                'o': 'SHAKE', 'u': 'SERVO2_TOGGLE',
+                'o': 'SHAKE', 'u': 'MOTOR1_ON',
                 'z': ('SERVO1', 70), 'x': ('SERVO1', 150),
                 'c': ('SERVO2', 0), 'v': ('SERVO2', 90),
-                'i': 'MOTOR1_TOGGLE',
+                'i': 'MOTOR1_OFF',
             }
 
             if key == '+':
