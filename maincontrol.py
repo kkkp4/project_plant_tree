@@ -3,78 +3,10 @@ from rclpy.node import Node
 import serial
 import sys, tty, termios
 import threading
-from flask import Flask, render_template, Response
+from flask import Flask, render_template, Response, jsonify
 import cv2
-import os
-import logging
 
-# -------------------- ROS2 TELEOP NODE --------------------
-class TeleopSerial(Node):
-    def __init__(self):
-        super().__init__('teleop_serial')
-
-        self.ser1 = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
-        self.ser2 = serial.Serial('/dev/ttyUSB1', 115200, timeout=1)
-
-        self.speed = 100
-
-        self.get_logger().info("Teleop ready! (Press 'q' to quit)")
-
-    def getch(self):
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return ch
-
-    def loop(self):
-        while rclpy.ok():
-            key = self.getch().lower()
-            if key == 'q':
-                self.send_cmd("STOP_ALL")
-                self.get_logger().info("Exiting teleop...")
-                break
-
-            actions = {
-                'w': 'F', 's': 'B', 'a': 'L', 'd': 'R', ' ': 'STOP_ALL',
-                'j': 'STEP1_FWD', 'k': 'STEP1_BWD', 'l': 'STEP2_45',
-                'o': 'SHAKE', 'u': 'MOTOR1_OFF',
-                'z': ('SERVO1', 70), 'x': ('SERVO1', 150),
-                'c': ('SERVO2', 0), 'v': ('SERVO2', 90),
-                'i': 'MOTOR1_ON',
-            }
-
-            if key == '+':
-                self.speed = min(255, self.speed + 10)
-                self.get_logger().info(f"Speed increased: {self.speed}")
-            elif key == '-':
-                self.speed = max(0, self.speed - 10)
-                self.get_logger().info(f"Speed decreased: {self.speed}")
-            elif key in actions:
-                cmd = actions[key]
-                if isinstance(cmd, tuple):
-                    self.send_cmd(cmd[0], value=cmd[1])
-                else:
-                    self.send_cmd(cmd)
-
-    def send_cmd(self, action, value=None, target="all"):
-        cmd = f"{action}:{value if value is not None else self.speed}\n"
-        if target == "esp1":
-            self.ser1.write(cmd.encode())
-            self.get_logger().info(f"Sent {cmd.strip()} -> ESP32 #1")
-        elif target == "esp2":
-            self.ser2.write(cmd.encode())
-            self.get_logger().info(f"Sent {cmd.strip()} -> ESP32 #2")
-        else:
-            self.ser1.write(cmd.encode())
-            self.ser2.write(cmd.encode())
-            self.get_logger().info(f"Sent {cmd.strip()} -> BOTH ESP32s")
-
-
-# -------------------- FLASK + OpenCV CAMERA --------------------
+# -------------------- Flask App --------------------
 app = Flask(__name__, template_folder='templates')
 
 cam0 = cv2.VideoCapture("/dev/video0", cv2.CAP_V4L2)
@@ -105,19 +37,117 @@ def cam0_feed():
 def cam2_feed():
     return Response(generate(cam2), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-def run_flask():
-    log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)  # ปิด log GET/POST ทั้งหมด
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+# แชร์ข้อมูล encoder ไปเว็บ
+encoder_data = {'left_cm': 0.0, 'right_cm': 0.0}
+initial_offset = {'left': None, 'right': None}
+
+@app.route('/distance')
+def get_distance():
+    return jsonify(encoder_data)
+
+
+# -------------------- ROS2 TELEOP NODE --------------------
+class TeleopSerial(Node):
+    def __init__(self):
+        super().__init__('teleop_serial')
+
+        self.ser1 = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+        self.ser2 = serial.Serial('/dev/ttyUSB1', 115200, timeout=1)
+        self.speed = 100
+
+        threading.Thread(target=self.read_encoders, daemon=True).start()
+        self.get_logger().info("Teleop ready! (Press 'q' to quit)")
+
+    def getch(self):
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
+    def loop(self):
+        while rclpy.ok():
+            key = self.getch().lower()
+            if key == 'q':
+                self.send_cmd("STOP_ALL")
+                self.get_logger().info("Exiting teleop...")
+                break
+
+            actions = {
+                'w': 'F', 's': 'B', 'a': 'L', 'd': 'R', ' ': 'S',
+                'j': 'STEP1_FWD', 'k': 'STEP1_BWD', 'l': 'STEP2_45',
+                'o': 'SHAKE', 'u': 'MOTOR1_OFF',
+                'z': ('SERVO1', 70), 'x': ('SERVO1', 150),
+                'c': ('SERVO2', 0), 'v': ('SERVO2', 90),
+                'i': 'MOTOR1_ON',
+            }
+
+            if key == '+':
+                self.speed = min(255, self.speed + 10)
+                self.get_logger().info(f"Speed increased: {self.speed}")
+            elif key == '-':
+                self.speed = max(0, self.speed - 10)
+                self.get_logger().info(f"Speed decreased: {self.speed}")
+            elif key in actions:
+                cmd = actions[key]
+                if isinstance(cmd, tuple):
+                    self.send_cmd(cmd[0], value=cmd[1])
+                else:
+                    self.send_cmd(cmd)
+
+    def send_cmd(self, action, value=None, target="all"):
+        cmd = f"{action}:{value if value is not None else self.speed}\n"
+        if target == "esp1":
+            self.ser1.write(cmd.encode())
+        elif target == "esp2":
+            self.ser2.write(cmd.encode())
+        else:
+            self.ser1.write(cmd.encode())
+            self.ser2.write(cmd.encode())
+        self.get_logger().info(f"Sent {cmd.strip()} -> BOTH ESP32s")
+
+    def read_encoders(self):
+        """อ่านค่า encoder (ไม่แสดงใน terminal)"""
+        while rclpy.ok():
+            for ser in [self.ser1, self.ser2]:
+                try:
+                    if ser.in_waiting:
+                        line = ser.readline().decode('utf-8').strip()
+                        if line.startswith("L_TICKS"):
+                            parts = line.split(',')
+                            data = {}
+                            for p in parts:
+                                k, v = p.split(':')
+                                data[k] = float(v)
+
+                            left_cm = data['L_DIST'] / 10.0
+                            right_cm = data['R_DIST'] / 10.0
+
+                            if initial_offset['left'] is None:
+                                initial_offset['left'] = left_cm
+                            if initial_offset['right'] is None:
+                                initial_offset['right'] = right_cm
+
+                            encoder_data['left_cm'] = round(left_cm - initial_offset['left'], 1)
+                            encoder_data['right_cm'] = round(right_cm - initial_offset['right'], 1)
+                except Exception:
+                    pass  # ไม่ต้องโชว์ error ใน loop encoder
 
 
 # -------------------- MAIN --------------------
+def run_flask():
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)  # ปิด log การเข้าถึงเว็บ (GET /distance)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+
 def main(args=None):
-    # รัน Flask server ใน thread
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    # รัน ROS2 node
     rclpy.init(args=args)
     node = TeleopSerial()
     node.loop()
