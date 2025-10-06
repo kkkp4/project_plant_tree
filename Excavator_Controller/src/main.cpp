@@ -16,7 +16,7 @@
 #define STEP2_STEP_PIN   21
 #define STEP2_DIR_PIN    22
 #define STEP2_EN_PIN     27   // NEW: Enable Pin
-AccelStepper stepper2(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
+AccelStepper stepper2(AccelStepper::DRIVER, STEP2_STEP_PIN, STEP2_DIR_PIN);
 const float DEGREE_PER_STEP = 1.8;             // สำหรับ full step
 const int STEPS_PER_45_DEG = 45 / DEGREE_PER_STEP;  // 45° = 25 steps
 long targetPosition = 0;
@@ -64,9 +64,9 @@ void motor1Toggle(int spd) {
     motor1State = false;
   } else {
     digitalWrite(MOTOR1_DIR_PIN, HIGH);
-    int pwm = map(spd, 0, 255, 0, 255);
+    int pwm = constrain(spd, 0, 255);  // ป้องกันค่าผิดพลาด
     ledcWrite(0, pwm);
-    Serial.println("Motor1 ON");
+    Serial.printf("Motor1 ON (PWM=%d)\n", pwm);
     motor1State = true;
   }
 }
@@ -159,17 +159,17 @@ void loop() {
       stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, false, 200, speedVal);
     }
     else if (key.equalsIgnoreCase("STEP2_45")) {
-      digitalWrite(EN_PIN, LOW);
+      digitalWrite(STEP2_EN_PIN, LOW);
       // ตั้งเป้าหมายใหม่
       targetPosition += STEPS_PER_45_DEG;
-      stepper.moveTo(targetPosition);
+      stepper2.moveTo(targetPosition);
       // หมุนไปจนถึงเป้าหมาย
-      while (stepper.distanceToGo() != 0) {
-        stepper.run();
+      while (stepper2.distanceToGo() != 0) {
+        stepper2.run();
       }
-      delay(1000);
+      delay(100);
       // ปิดมอเตอร์หลังหมุนเสร็จ
-      digitalWrite(EN_PIN, HIGH);
+      digitalWrite(STEP2_EN_PIN, HIGH);
     } 
     else if (key.equalsIgnoreCase("SERVO2")) {
     int angle = valStr.toInt(); // 0..180
@@ -179,8 +179,28 @@ void loop() {
     Serial.printf("-> Servo2 angle %d -> %d us\n", angle, us);
     }
     else if (key.equalsIgnoreCase("MOTOR1_TOGGLE")) {
-      int speedVal = 110;
+      int speedVal = 150;
       motor1Toggle(speedVal);
+    }
+    else if (key.equalsIgnoreCase("SHAKE")) {
+      digitalWrite(STEP2_EN_PIN, LOW); // เปิดมอเตอร์
+
+      int shakeSteps = 15 / 1.8; // 10 องศา = ~6 steps (สำหรับ full step)
+      long basePosition = stepper2.currentPosition(); // ตำแหน่งเริ่มต้น
+      for (int i = 0; i < 3; i++) {
+        // ขยับ +10°
+        stepper2.moveTo(basePosition + shakeSteps);
+        while (stepper2.distanceToGo() != 0) {
+          stepper2.run();
+        }
+        // ขยับ -10° (กลับมา)
+        stepper2.moveTo(basePosition);
+        while (stepper2.distanceToGo() != 0) {
+          stepper2.run();
+        }
+        delay(100); // หน่วงเล็กน้อย
+      }
+      digitalWrite(STEP2_EN_PIN, HIGH); // ปิดมอเตอร์
     } else {
     Serial.println("Unknown command key.");
   }
