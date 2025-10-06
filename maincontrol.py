@@ -6,6 +6,7 @@ import threading
 from flask import Flask, render_template, Response
 import cv2
 import os
+import logging
 
 # -------------------- ROS2 TELEOP NODE --------------------
 class TeleopSerial(Node):
@@ -33,6 +34,7 @@ class TeleopSerial(Node):
         while rclpy.ok():
             key = self.getch().lower()
             if key == 'q':
+                self.send_cmd("STOP_ALL")
                 self.get_logger().info("Exiting teleop...")
                 break
 
@@ -104,6 +106,8 @@ def cam2_feed():
     return Response(generate(cam2), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def run_flask():
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)  # ปิด log GET/POST ทั้งหมด
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
 
 
