@@ -91,6 +91,12 @@ class TeleopSerial(Node):
             elif key == '-':
                 self.speed = max(0, self.speed - 10)
                 self.get_logger().info(f"Speed decreased: {self.speed}")
+            elif key == 'e':
+                # รีเซ็ต encoder offset
+                initial_offset['left'] = encoder_data['left_cm'] + initial_offset['left']
+                initial_offset['right'] = encoder_data['right_cm'] + initial_offset['right']
+                self.get_logger().info("Encoder reset to 0")
+
             elif key in actions:
                 cmd = actions[key]
                 if isinstance(cmd, tuple):
