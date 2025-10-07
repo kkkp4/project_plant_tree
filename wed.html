@@ -51,10 +51,24 @@
         width: 100%;
       }
     }
+
+    /* ✅ ส่วน encoder */
+    #encoder-data {
+      margin-top: 20px;
+      font-size: 18px;
+      color: #333;
+    }
   </style>
 </head>
 <body>
+
   <h1>Live Dual USB Camera</h1>
+
+  <!-- ✅ Encoder Display -->
+  <div id="encoder-data">
+    <b>Left:</b> <span id="left_cm">0.0</span> cm |
+    <b>Right:</b> <span id="right_cm">0.0</span> cm
+  </div>
 
   <div class="cam-container">
     <div class="cam-box">
@@ -66,5 +80,22 @@
       <img src="{{ url_for('cam2_feed') }}" class="cam-view">
     </div>
   </div>
+
+  <!-- ✅ JavaScript อัปเดต encoder จาก Flask API -->
+  <script>
+    async function fetchEncoderData() {
+      try {
+        const response = await fetch('/distance');
+        const data = await response.json();
+        document.getElementById('left_cm').textContent = data.left_cm.toFixed(1);
+        document.getElementById('right_cm').textContent = data.right_cm.toFixed(1);
+      } catch (e) {
+        console.error("Error fetching encoder data", e);
+      }
+    }
+
+    // อัปเดตทุก 500ms
+    setInterval(fetchEncoderData, 500);
+  </script>
 </body>
 </html>
