@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 import serial
+import serial.tools.list_ports
 import sys, tty, termios
 import threading
 from flask import Flask, render_template, Response, jsonify
@@ -15,7 +16,7 @@ cam2 = cv2.VideoCapture("/dev/video2", cv2.CAP_V4L2)
 for cam in [cam0, cam2]:
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-    cam.set(cv2.CAP_PROP_FPS, 15)
+    cam.set(cv2.CAP_PROP_FPS, 30)
 
 def generate(cam):
     while True:
@@ -45,16 +46,34 @@ initial_offset = {'left': None, 'right': None}
 def get_distance():
     return jsonify(encoder_data)
 
+# -------------------- ESP32 Port Finder --------------------
+def find_esp32_ports():
+    ports = list(serial.tools.list_ports.comports())
+    esp32_ports = []
+    for p in ports:
+        if ('CP210' in p.description or
+            'CH340' in p.description or
+            'USB' in p.description or
+            'UART' in p.description or
+            'Silicon Labs' in p.description):
+            esp32_ports.append(p.device)
+    return esp32_ports
+
 # -------------------- ROS2 TELEOP NODE --------------------
 class TeleopSerial(Node):
     def __init__(self):
         super().__init__('teleop_serial')
 
-        self.ser1 = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
-        self.ser2 = serial.Serial('/dev/ttyUSB1', 115200, timeout=1)
-        self.speed = 100
+        ports = find_esp32_ports()
+        if len(ports) < 2:
+            raise RuntimeError("❌ ไม่พบ ESP32 อย่างน้อย 2 ตัว")
+
+        self.ser1 = serial.Serial(ports[0], 115200, timeout=1)
+        self.ser2 = serial.Serial(ports[1], 115200, timeout=1)
+        self.speed = 60
 
         threading.Thread(target=self.read_encoders, daemon=True).start()
+        self.get_logger().info(f"Connected to ESP32 at {ports[0]} and {ports[1]}")
         self.get_logger().info("Teleop ready! (Press 'q' to quit)")
 
     def getch(self):
@@ -79,7 +98,7 @@ class TeleopSerial(Node):
                 'w': 'F', 's': 'B', 'a': 'L', 'd': 'R', ' ': 'S',
                 'j': 'STEP1_FWD', 'k': 'STEP1_BWD', 'l': 'STEP2_45',
                 'o': 'SHAKE', 'u': 'MOTOR1_OFF',
-                'z': ('SERVO1', 70), 'x': ('SERVO1', 150),
+                'z': ('SERVO1', 70), 'x': ('SERVO1', 120),
                 'c': ('SERVO2', 0), 'v': ('SERVO2', 100),
                 'i': 'MOTOR1_ON',
             }
@@ -140,13 +159,13 @@ class TeleopSerial(Node):
                             encoder_data['left_cm'] = round(left_cm - initial_offset['left'], 1)
                             encoder_data['right_cm'] = round(right_cm - initial_offset['right'], 1)
                 except Exception:
-                    pass  # ไม่ต้องโชว์ error ใน loop encoder
+                    pass
 
 # -------------------- MAIN --------------------
 def run_flask():
     import logging
     log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)  # ปิด log การเข้าถึงเว็บ (GET /distance)
+    log.setLevel(logging.ERROR)
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
 
 def main(args=None):
