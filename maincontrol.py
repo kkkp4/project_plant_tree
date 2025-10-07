@@ -45,7 +45,6 @@ initial_offset = {'left': None, 'right': None}
 def get_distance():
     return jsonify(encoder_data)
 
-
 # -------------------- ROS2 TELEOP NODE --------------------
 class TeleopSerial(Node):
     def __init__(self):
@@ -93,12 +92,11 @@ class TeleopSerial(Node):
                 self.get_logger().info(f"Speed decreased: {self.speed}")
             elif key == 'e':
                 if initial_offset['left'] is not None and initial_offset['right'] is not None:
-                initial_offset['left'] = encoder_data['left_cm'] + initial_offset['left']
-                initial_offset['right'] = encoder_data['right_cm'] + initial_offset['right']
-                self.get_logger().info("Encoder reset to 0")
-            else:
-                self.get_logger().warn("Encoder data not ready. Try again in a moment.")
-
+                    initial_offset['left'] = encoder_data['left_cm'] + initial_offset['left']
+                    initial_offset['right'] = encoder_data['right_cm'] + initial_offset['right']
+                    self.get_logger().info("Encoder reset to 0")
+                else:
+                    self.get_logger().warn("Encoder data not ready. Try again in a moment.")
             elif key in actions:
                 cmd = actions[key]
                 if isinstance(cmd, tuple):
@@ -143,7 +141,6 @@ class TeleopSerial(Node):
                             encoder_data['right_cm'] = round(right_cm - initial_offset['right'], 1)
                 except Exception:
                     pass  # ไม่ต้องโชว์ error ใน loop encoder
-
 
 # -------------------- MAIN --------------------
 def run_flask():
