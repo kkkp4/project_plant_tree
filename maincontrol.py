@@ -81,7 +81,7 @@ class TeleopSerial(Node):
                 'j': 'STEP1_FWD', 'k': 'STEP1_BWD', 'l': 'STEP2_45',
                 'o': 'SHAKE', 'u': 'MOTOR1_OFF',
                 'z': ('SERVO1', 70), 'x': ('SERVO1', 150),
-                'c': ('SERVO2', 0), 'v': ('SERVO2', 90),
+                'c': ('SERVO2', 0), 'v': ('SERVO2', 100),
                 'i': 'MOTOR1_ON',
             }
 
