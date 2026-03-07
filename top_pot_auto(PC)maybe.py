@@ -12,12 +12,11 @@ import time
 class PotFaceDetector(Node):
 
     def __init__(self):
-        super().__init__('pot_face_detector')
+        super().__init__('top_pot_detector')
 
         self.bridge = CvBridge()
-        self.model = YOLO("pot_face.pt")
+        self.model = YOLO("top_pot2.pt")
 
-        # รับภาพ
         self.subscription = self.create_subscription(
             Image,
             '/image',
@@ -25,26 +24,23 @@ class PotFaceDetector(Node):
             10
         )
 
-        # ส่งคำสั่งไป ESP32
         self.cmd_pub = self.create_publisher(String, '/cmd', 10)
 
-        # ===== PID =====
-        self.Kp = 0.6
-        self.Ki = 0.0008
-        self.Kd = 0.2
+        # PID
+        self.Kp = 0.50
+        self.Ki = 0.0015
+        self.Kd = 0.23
 
         self.prev_error = 0
         self.integral = 0
         self.prev_time = time.time()
 
-        # ===== SPEED =====
-        self.max_speed = 90
-        self.min_speed = 30
+        self.max_speed = 75
+        self.min_speed = 35
 
-        # ===== STOP DISTANCE =====
-        self.stop_area = 45000
+        self.stop_area = 80000
 
-        self.get_logger().info("✅ Pot Auto Align Started")
+        self.get_logger().info("✅ Top Pot Auto Align Started")
 
     def image_callback(self, msg):
 
@@ -54,58 +50,64 @@ class PotFaceDetector(Node):
 
         cmd = "S:0"
 
-        if len(results[0].boxes) > 0:
+        boxes = results[0].boxes
 
-            box = results[0].boxes[0]
+        if boxes is not None and len(boxes) > 0:
 
-            x1, y1, x2, y2 = box.xyxy[0]
-            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            centers = []
+            areas = []
 
-            # ===== ROI =====
-            roi = frame[y1:y2, x1:x2]
+            for box in boxes:
 
-            if roi.size == 0:
-                return
+                x1, y1, x2, y2 = box.xyxy[0]
+                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
-            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-            _, thresh = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY)
+                cx = (x1 + x2) / 2
+                cy = (y1 + y2) / 2
 
-            contours, _ = cv2.findContours(
-                thresh,
-                cv2.RETR_EXTERNAL,
-                cv2.CHAIN_APPROX_SIMPLE
-            )
+                centers.append((cx, cy))
+                areas.append((x2-x1)*(y2-y1))
 
-            if len(contours) == 0:
-                return
+                cv2.rectangle(frame,(x1,y1),(x2,y2),(0,255,0),2)
+                cv2.circle(frame,(int(cx),int(cy)),4,(0,0,255),-1)
 
-            cnt = max(contours, key=cv2.contourArea)
+            # ===== center logic =====
 
-            # ===== ROTATED RECT =====
-            rect = cv2.minAreaRect(cnt)
-            angle = rect[2]
+            if len(centers) == 1:
 
-            box_points = cv2.boxPoints(rect)
-            box_points = np.int0(box_points)
+                object_center = centers[0][0]
+                area = areas[0]
 
-            box_points[:, 0] += x1
-            box_points[:, 1] += y1
+            else:
 
-            cv2.drawContours(frame, [box_points], 0, (0, 255, 0), 2)
+                # เลือกสองวัตถุที่ใกล้กลางภาพที่สุด
+                frame_center = frame.shape[1]/2
 
-            # ===== CENTER ERROR =====
+                centers_sorted = sorted(
+                    centers,
+                    key=lambda c: abs(c[0]-frame_center)
+                )
+
+                c1 = centers_sorted[0]
+                c2 = centers_sorted[1]
+
+                object_center = (c1[0] + c2[0]) / 2
+
+                # ใช้ area เฉลี่ย
+                area = np.mean(areas)
+
+                cv2.circle(frame,(int(object_center),int((c1[1]+c2[1])/2)),6,(255,0,255),-1)
+
+            # ===== PID =====
+
             frame_center = frame.shape[1] / 2
-            object_center = (x1 + x2) / 2
-
             error = object_center - frame_center
 
-            # ===== TIME =====
             now = time.time()
             dt = now - self.prev_time
             if dt == 0:
                 dt = 0.0001
 
-            # ===== PID =====
             self.integral += error * dt
             derivative = (error - self.prev_error) / dt
 
@@ -118,43 +120,43 @@ class PotFaceDetector(Node):
             self.prev_error = error
             self.prev_time = now
 
-            # ===== LIMIT SPEED =====
             output = max(min(output, self.max_speed), -self.max_speed)
 
             if 0 < abs(output) < self.min_speed:
                 output = self.min_speed if output > 0 else -self.min_speed
 
-            # ===== DISTANCE =====
-            area = (x2 - x1) * (y2 - y1)
-
             # ===== DECISION =====
+
             if area > self.stop_area:
+
                 cmd = "S:0"
 
             else:
 
-                # หมุนตาม angle ก่อน
-                if angle > 5:
-                    cmd = f"R:{self.min_speed}"
+                if abs(error) < 20:
 
-                elif angle < -5:
-                    cmd = f"L:{self.min_speed}"
+                    cmd = f"F:{self.max_speed}"
+
+                elif output > 0:
+
+                    cmd = f"R:{int(abs(output))}"
 
                 else:
 
-                    # ใช้ PID จัดกลาง
-                    if abs(error) < 20:
-                        cmd = f"F:{self.max_speed}"
+                    cmd = f"L:{int(abs(output))}"
 
-                    elif output > 0:
-                        cmd = f"R:{int(abs(output))}"
+            # ===== VISUAL =====
 
-                    else:
-                        cmd = f"L:{int(abs(output))}"
+            cv2.line(
+                frame,
+                (int(frame_center),0),
+                (int(frame_center),frame.shape[0]),
+                (255,255,0),
+                2
+            )
 
-            # ===== LOG =====
             self.get_logger().info(
-                f"angle={angle:.2f} | err={int(error)} | area={int(area)} | cmd={cmd}"
+                f"err={int(error)} | area={int(area)} | cmd={cmd}"
             )
 
         else:
@@ -162,13 +164,11 @@ class PotFaceDetector(Node):
             self.integral = 0
             cmd = "S:0"
 
-        # ===== SEND CMD =====
         msg_cmd = String()
         msg_cmd.data = cmd
         self.cmd_pub.publish(msg_cmd)
 
-        annotated = results[0].plot()
-        cv2.imshow("Pot Auto Align", annotated)
+        cv2.imshow("Top Pot Auto Align", frame)
         cv2.waitKey(1)
 
 
