@@ -1,207 +1,201 @@
 #include <Arduino.h>
-#include <AccelStepper.h>
 #include <ESP32Servo.h>
 
+// ================= MOTOR STRUCT =================
+struct Motor {
+  int in1;
+  int in2;
+  int channel1;
+  int channel2;
+};
 
-// --------- Pin Config ---------
-#define SERVO1_PIN       4
-#define SERVO2_PIN       5
+Motor motors[4] = {
+  {4, 18, 0, 1},
+  {14, 27, 2, 3},
+  {19, 23, 4, 5},
+  {25, 26, 6, 7}
+};
 
-// Stepper 1 (Step/Dir/EN)
-#define STEP1_STEP_PIN   18
-#define STEP1_DIR_PIN    19
-#define STEP1_EN_PIN     23   // NEW: Enable Pin
+// ================= SERVO =================
+#define SERVO_PIN 5
+Servo cameraServo;
+int servoAngle = 90;
 
-// Stepper 2 (Step/Dir/EN)
-#define STEP2_STEP_PIN   21
-#define STEP2_DIR_PIN    22
-#define STEP2_EN_PIN     27   // NEW: Enable Pin
-AccelStepper stepper2(AccelStepper::DRIVER, STEP2_STEP_PIN, STEP2_DIR_PIN);
-const float DEGREE_PER_STEP = 1.8;             // สำหรับ full step
-const int STEPS_PER_45_DEG = 45 / DEGREE_PER_STEP;  // 45° = 25 steps
-long targetPosition = 0;
+// ================= ENCODER =================
+#define ENCODER_L_A 34
+#define ENCODER_L_B 35
+#define ENCODER_R_A 32
+#define ENCODER_R_B 33
 
-// DC Motor1 (H-Bridge PWM + DIR)
-#define MOTOR1_PWM_PIN   25
-#define MOTOR1_DIR_PIN   26
+volatile long ticks_left = 0;
+volatile long ticks_right = 0;
 
-// --------- Global Variables ---------
-Servo servo1;
-Servo servo2;
+const float wheel_diameter_mm = 47.0;
+const int gear_ratio = 90;
+const int encoder_cpr = 11;
+const int ticks_per_rev = encoder_cpr * gear_ratio;
+const float wheel_circumference_mm = 3.1416 * wheel_diameter_mm;
+const float mm_per_tick = wheel_circumference_mm / ticks_per_rev;
 
-bool servo1State = false;     // Servo1 toggle 0° ↔ 150°
-bool servo2State = false;     // Servo2 toggle 0° ↔ 90°
-bool motor1State = false;     // DC Motor toggle ON/OFF
+int motorSpeed = 150;
+unsigned long lastReport = 0;
 
-int speedVal = 100;           // ค่า speed จาก Pi
-bool stopAll = false;         // STOP_ALL flag
-
-void stepperMove(int stepPin, int dirPin, int enPin, bool forward, int steps, int spd) {
-  if (stopAll) return;
-
-  // เปิดการทำงานของ Stepper (Active Low)
-  digitalWrite(enPin, LOW);
-  digitalWrite(dirPin, forward ? HIGH : LOW);
-
-  int delay_us = map(spd, 0, 255, 2000, 300); // speed control
-
-  for (int i = 0; i < steps; i++) {
-    if (stopAll) break;
-    digitalWrite(stepPin, HIGH);
-    delayMicroseconds(delay_us);
-    digitalWrite(stepPin, LOW);
-    delayMicroseconds(delay_us);
-  }
-
-  // ปิดการทำงานของ Stepper หลังจบการหมุน
-  digitalWrite(enPin, HIGH);
+// ================= ENCODER ISR =================
+void IRAM_ATTR leftEncoderISR() {
+  if (digitalRead(ENCODER_L_A) == digitalRead(ENCODER_L_B))
+    ticks_left--;
+  else
+    ticks_left++;
 }
 
-void motor1Toggle(int spd) {
-  if (motor1State) {
-    ledcWrite(0, 0);
-    Serial.println("Motor1 OFF");
-    motor1State = false;
-  } else {
-    digitalWrite(MOTOR1_DIR_PIN, HIGH);
-    int pwm = constrain(spd, 0, 255);  // ป้องกันค่าผิดพลาด
-    ledcWrite(0, pwm);
-    Serial.printf("Motor1 ON (PWM=%d)\n", pwm);
-    motor1State = true;
+void IRAM_ATTR rightEncoderISR() {
+  if (digitalRead(ENCODER_R_A) == digitalRead(ENCODER_R_B))
+    ticks_right--;
+  else
+    ticks_right++;
+}
+
+// ================= MOTOR CONTROL =================
+void setMotor(int id, char dir, int speed) {
+  if (id < 0 || id > 3) return;
+
+  if (dir == 'F') {
+    ledcWrite(motors[id].channel1, speed);
+    ledcWrite(motors[id].channel2, 0);
+  } 
+  else if (dir == 'B') {
+    ledcWrite(motors[id].channel1, 0);
+    ledcWrite(motors[id].channel2, speed);
+  } 
+  else {
+    ledcWrite(motors[id].channel1, 0);
+    ledcWrite(motors[id].channel2, 0);
   }
 }
 
+void stopAll() {
+  for (int i = 0; i < 4; i++)
+    setMotor(i, 'S', 0);
+}
+
+// ================= SETUP =================
 void setup() {
+
   Serial.begin(115200);
-  delay(50);
-  Serial.println("\n=== ESP32 Servo Debug Ready ===");
-  
-  // Stepper setup
-  pinMode(STEP1_STEP_PIN, OUTPUT);
-  pinMode(STEP1_DIR_PIN, OUTPUT);
-  pinMode(STEP1_EN_PIN, OUTPUT);
-  digitalWrite(STEP1_EN_PIN, HIGH); // เริ่มต้นปิด
 
-  pinMode(STEP2_STEP_PIN, OUTPUT);
-  pinMode(STEP2_DIR_PIN, OUTPUT);
-  pinMode(STEP2_EN_PIN, OUTPUT);
-  digitalWrite(STEP2_EN_PIN, HIGH); // เริ่มต้นปิด
-  stepper2.setMaxSpeed(1000);     // steps/sec
-  stepper2.setAcceleration(500);  // steps/sec^2
-
-  // Motor1 setup (PWM + DIR)
-  pinMode(MOTOR1_DIR_PIN, OUTPUT);
-  ledcSetup(0, 5000, 8); // channel 0, freq 5kHz, 8-bit
-  ledcAttachPin(MOTOR1_PWM_PIN, 0);
-  
-  // attach with safe pulse range for SG90 (500..2400us)
-  servo1.attach(SERVO1_PIN, 500, 2400);
-  servo1.writeMicroseconds(1500); // neutral
-  servo2.attach(SERVO2_PIN, 500, 2400);
-  servo2.writeMicroseconds(1500); // neutral
-  delay(500);
-  Serial.println("Servo attached on GPIO4 (500..2400us).");
-}
-
-String readLine() {
-  // non-blocking readStringUntil is OK but we implement simple blocking read for debug
-  String s = "";
-  unsigned long start = millis();
-  // wait up to 2000 ms for something
-  while (millis() - start < 2000) {
-    while (Serial.available()) {
-      char c = Serial.read();
-      s += c;
-      if (c == '\n') return s;
-    }
-    delay(5);
+  // ===== MOTOR PWM SETUP =====
+  for (int i = 0; i < 4; i++) {
+    ledcSetup(motors[i].channel1, 20000, 8);
+    ledcSetup(motors[i].channel2, 20000, 8);
+    ledcAttachPin(motors[i].in1, motors[i].channel1);
+    ledcAttachPin(motors[i].in2, motors[i].channel2);
   }
-  return s;
+
+  // ===== ENCODER SETUP =====
+  pinMode(ENCODER_L_A, INPUT);
+  pinMode(ENCODER_L_B, INPUT);
+  pinMode(ENCODER_R_A, INPUT);
+  pinMode(ENCODER_R_B, INPUT);
+
+  attachInterrupt(digitalPinToInterrupt(ENCODER_L_A), leftEncoderISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_R_A), rightEncoderISR, CHANGE);
+
+  // ===== SERVO SETUP =====
+  cameraServo.setPeriodHertz(50);
+  cameraServo.attach(SERVO_PIN);
+  //cameraServo.write(180);
+
+  Serial.println("ESP32 Robot Ready!");
 }
 
+// ================= LOOP =================
 void loop() {
-  String cmd = readLine();
-  if (cmd.length() == 0) {
-    // no data received within timeout
-    delay(10);
-    return;
+
+  // ===== RECEIVE COMMAND =====
+  if (Serial.available()) {
+
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    char direction = cmd.charAt(0);
+    int sep = cmd.indexOf(':');
+
+    // ===== SERVO COMMAND =====
+    if (direction == 'V' && sep > 0) {
+      int angle = cmd.substring(sep + 1).toInt();
+      angle = constrain(angle, 0, 180);
+      servoAngle = angle;
+      cameraServo.write(servoAngle);
+
+      Serial.println("SERVO: " + String(servoAngle));
+      return;
+    }
+
+    // ===== MOTOR SPEED =====
+    if (sep > 0) {
+      motorSpeed = cmd.substring(sep + 1).toInt();
+      motorSpeed = constrain(motorSpeed, 0, 255);
+    }
+
+    if (direction == 'F') {
+      for (int i = 0; i < 4; i++)
+        setMotor(i, 'F', motorSpeed);
+        cameraServo.write(servoAngle); // ค้างตำแหน่งเดิม
+    }
+    else if (direction == 'B') {
+      for (int i = 0; i < 4; i++)
+        setMotor(i, 'B', motorSpeed);
+        cameraServo.write(servoAngle); // ค้างตำแหน่งเดิม
+    }
+    else if (direction == 'L') {
+      setMotor(0, 'B', motorSpeed);
+      setMotor(1, 'B', motorSpeed);
+      setMotor(2, 'F', motorSpeed);
+      setMotor(3, 'F', motorSpeed);
+      cameraServo.write(servoAngle); // ค้างตำแหน่งเดิม
+    }
+    else if (direction == 'R') {
+      setMotor(0, 'F', motorSpeed);
+      setMotor(1, 'F', motorSpeed);
+      setMotor(2, 'B', motorSpeed);
+      setMotor(3, 'B', motorSpeed);
+      cameraServo.write(servoAngle); // ค้างตำแหน่งเดิม
+    }
+    else if (direction == 'S') {
+      stopAll();
+      cameraServo.write(servoAngle); // ค้างตำแหน่งเดิม
+    }
+
+    Serial.println("OK: " + cmd);
   }
 
-  // trim CR/LF and spaces
-  cmd.trim();
-  //debugPrintRaw(cmd);
+  // ===== REPORT ENCODER DATA =====
+  if (millis() - lastReport >= 500) {
 
-  // Simple parsing:
-  int sep = cmd.indexOf(':');
-  if (sep == -1) {
-    Serial.println("No ':' found. Expected format: KEY:VALUE");
-    return;
-  }
-  String key = cmd.substring(0, sep);
-  String valStr = cmd.substring(sep + 1);
-  valStr.trim();
+    static long lastL = 0;
+    static long lastR = 0;
 
-  Serial.printf("Parsed KEY='%s', VAL='%s'\n", key.c_str(), valStr.c_str());
+    long nowL = ticks_left;
+    long nowR = ticks_right;
 
-  if (key.equalsIgnoreCase("SERVO1")) {
-    int angle = valStr.toInt(); // 0..180
-    angle = constrain(angle, 0, 180);
-    int us = map(angle, 0, 180, 500, 2400); // SG90 mapping
-    servo1.writeMicroseconds(us);
-    Serial.printf("-> Servo1 angle %d -> %d us\n", angle, us);
-    }
-    else if (key.equalsIgnoreCase("STEP1_FWD")) {
-      int speedVal = valStr.toInt(); // 0..180
-      stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, true, 200, speedVal);
-    }
-    else if (key.equalsIgnoreCase("STEP1_BWD")) {
-      int speedVal = valStr.toInt(); // 0..180
-      stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, false, 200, speedVal);
-    }
-    else if (key.equalsIgnoreCase("STEP2_45")) {
-      digitalWrite(STEP2_EN_PIN, LOW);
-      // ตั้งเป้าหมายใหม่
-      targetPosition += STEPS_PER_45_DEG;
-      stepper2.moveTo(targetPosition);
-      // หมุนไปจนถึงเป้าหมาย
-      while (stepper2.distanceToGo() != 0) {
-        stepper2.run();
-      }
-      delay(100);
-      // ปิดมอเตอร์หลังหมุนเสร็จ
-      digitalWrite(STEP2_EN_PIN, HIGH);
-    } 
-    else if (key.equalsIgnoreCase("SERVO2")) {
-    int angle = valStr.toInt(); // 0..180
-    angle = constrain(angle, 0, 180);
-    int us = map(angle, 0, 180, 500, 2400); // SG90 mapping
-    servo2.writeMicroseconds(us);
-    Serial.printf("-> Servo2 angle %d -> %d us\n", angle, us);
-    }
-    else if (key.equalsIgnoreCase("MOTOR1_TOGGLE")) {
-      int speedVal = 150;
-      motor1Toggle(speedVal);
-    }
-    else if (key.equalsIgnoreCase("SHAKE")) {
-      digitalWrite(STEP2_EN_PIN, LOW); // เปิดมอเตอร์
+    long deltaL = nowL - lastL;
+    long deltaR = nowR - lastR;
 
-      int shakeSteps = 15 / 1.8; // 10 องศา = ~6 steps (สำหรับ full step)
-      long basePosition = stepper2.currentPosition(); // ตำแหน่งเริ่มต้น
-      for (int i = 0; i < 3; i++) {
-        // ขยับ +10°
-        stepper2.moveTo(basePosition + shakeSteps);
-        while (stepper2.distanceToGo() != 0) {
-          stepper2.run();
-        }
-        // ขยับ -10° (กลับมา)
-        stepper2.moveTo(basePosition);
-        while (stepper2.distanceToGo() != 0) {
-          stepper2.run();
-        }
-        delay(100); // หน่วงเล็กน้อย
-      }
-      digitalWrite(STEP2_EN_PIN, HIGH); // ปิดมอเตอร์
-    } else {
-    Serial.println("Unknown command key.");
+    float vL = (deltaL * mm_per_tick) / 0.5;
+    float vR = (deltaR * mm_per_tick) / 0.5;
+
+    float dL = nowL * mm_per_tick;
+    float dR = nowR * mm_per_tick;
+
+    Serial.print("L_TICKS:"); Serial.print(nowL);
+    Serial.print(",R_TICKS:"); Serial.print(nowR);
+    Serial.print(",L_VEL:"); Serial.print(vL, 2);
+    Serial.print(",R_VEL:"); Serial.print(vR, 2);
+    Serial.print(",L_DIST:"); Serial.print(dL, 2);
+    Serial.print(",R_DIST:"); Serial.println(dR, 2);
+
+    lastL = nowL;
+    lastR = nowR;
+    lastReport = millis();
   }
 }
