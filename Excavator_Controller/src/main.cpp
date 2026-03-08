@@ -18,7 +18,7 @@
 #define STEP2_EN_PIN     27   // NEW: Enable Pin
 AccelStepper stepper2(AccelStepper::DRIVER, STEP2_STEP_PIN, STEP2_DIR_PIN);
 const float DEGREE_PER_STEP = 1.8;             // สำหรับ full step
-const int STEPS_PER_45_DEG = 45 / DEGREE_PER_STEP;  // 45° = 25 steps
+const int STEPS_PER_45_DEG = 36 / DEGREE_PER_STEP;  // 45° = 25 steps
 long targetPosition = 0;
 
 // DC Motor1 (H-Bridge PWM + DIR)
@@ -205,4 +205,5 @@ void loop() {
     Serial.println("Unknown command key.");
   }
 }
+
 
