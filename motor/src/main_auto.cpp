@@ -38,13 +38,19 @@ const int ticks_per_rev = encoder_cpr * gear_ratio;
 const float wheel_circumference_mm = 3.1416 * wheel_diameter_mm;
 const float mm_per_tick = wheel_circumference_mm / ticks_per_rev;
 
-int motorSpeed = 150;
+int motorSpeed = 120;
 unsigned long lastReport = 0;
 
 // ===== distance move control =====
 bool moveByDistance = false;
 float targetDistance = 0;
 float startDistance = 0;
+
+// ===== backward distance control (เพิ่ม) =====
+bool moveBackwardByDistance = false;
+float targetDistanceBack = 0;
+float startDistanceBack = 0;
+
 
 // ================= ENCODER ISR =================
 void IRAM_ATTR leftEncoderISR() {
@@ -60,6 +66,7 @@ void IRAM_ATTR rightEncoderISR() {
   else
     ticks_right++;
 }
+
 
 // ================= MOTOR CONTROL =================
 void setMotor(int id, char dir, int speed) {
@@ -84,6 +91,7 @@ void stopAll() {
   for (int i = 0; i < 4; i++)
     setMotor(i, 'S', 0);
 }
+
 
 // ================= SETUP =================
 void setup() {
@@ -113,6 +121,7 @@ void setup() {
   Serial.println("ESP32 Robot Ready!");
 }
 
+
 // ================= LOOP =================
 void loop() {
 
@@ -138,7 +147,7 @@ void loop() {
       return;
     }
 
-    // ===== MOVE DISTANCE =====
+    // ===== MOVE FORWARD DISTANCE =====
     if (direction == 'D' && sep > 0) {
 
       ticks_left = 0;
@@ -152,11 +161,33 @@ void loop() {
       startDistance = (dL + dR) / 2.0;
 
       moveByDistance = true;
-
+      cameraServo.write(servoAngle);
       for (int i = 0; i < 4; i++)
         setMotor(i, 'F', motorSpeed);
 
       Serial.println("MOVE_CM:" + String(targetDistance));
+      return;
+    }
+
+    // ===== MOVE BACKWARD DISTANCE (เพิ่ม) =====
+    if (cmd.startsWith("BD:")) {
+
+      ticks_left = 0;
+      ticks_right = 0;
+
+      targetDistanceBack = cmd.substring(3).toFloat();
+
+      float dL = (ticks_left * mm_per_tick) / 10.0;
+      float dR = (-ticks_right * mm_per_tick) / 10.0;
+
+      startDistanceBack = (dL + dR) / 2.0;
+
+      moveBackwardByDistance = true;
+      cameraServo.write(servoAngle);
+      for (int i = 0; i < 4; i++)
+        setMotor(i, 'B', motorSpeed);
+
+      Serial.println("BACK_CM:" + String(targetDistanceBack));
       return;
     }
 
@@ -165,40 +196,47 @@ void loop() {
       motorSpeed = constrain(motorSpeed, 0, 255);
     }
 
-    // ===== NEW COMMANDS =====
+    // ===== NORMAL MOVE =====
     if (direction == 'F') {
       for (int i = 0; i < 4; i++)
         setMotor(i, 'F', motorSpeed);
+      cameraServo.write(servoAngle);
     }
 
     else if (direction == 'B') {
       for (int i = 0; i < 4; i++)
         setMotor(i, 'B', motorSpeed);
+      cameraServo.write(servoAngle);
     }
 
     else if (direction == 'L') {
       setMotor(0,'B',motorSpeed);
-      setMotor(1,'F',motorSpeed);
-      setMotor(2,'B',motorSpeed);
+      setMotor(1,'B',motorSpeed);
+      setMotor(2,'F',motorSpeed);
       setMotor(3,'F',motorSpeed);
+      cameraServo.write(servoAngle);
     }
 
     else if (direction == 'R') {
       setMotor(0,'F',motorSpeed);
-      setMotor(1,'B',motorSpeed);
-      setMotor(2,'F',motorSpeed);
+      setMotor(1,'F',motorSpeed);
+      setMotor(2,'B',motorSpeed);
       setMotor(3,'B',motorSpeed);
+      cameraServo.write(servoAngle);
     }
 
     if (direction == 'S') {
       stopAll();
       moveByDistance = false;
+      moveBackwardByDistance = false;
+      cameraServo.write(servoAngle);
     }
 
     Serial.println("OK: " + cmd);
   }
 
-  // ===== DISTANCE CHECK =====
+
+  // ===== FORWARD DISTANCE CHECK =====
   if (moveByDistance) {
 
     float dL = (ticks_left * mm_per_tick) / 10.0;
@@ -214,6 +252,25 @@ void loop() {
       Serial.println("TARGET_REACHED");
     }
   }
+
+
+  // ===== BACKWARD DISTANCE CHECK (เพิ่ม) =====
+  if (moveBackwardByDistance) {
+
+    float dL = (ticks_left * mm_per_tick) / 10.0;
+    float dR = (-ticks_right * mm_per_tick) / 10.0;
+
+    float avg = (dL + dR) / 2.0;
+
+    if (abs(avg - startDistanceBack) >= targetDistanceBack) {
+
+      stopAll();
+      moveBackwardByDistance = false;
+
+      Serial.println("BACK_TARGET_REACHED");
+    }
+  }
+
 
   // ===== REPORT =====
   if (millis() - lastReport >= 500) {
