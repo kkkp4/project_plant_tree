@@ -11,6 +11,8 @@
 #define STEP1_STEP_PIN   18
 #define STEP1_DIR_PIN    19
 #define STEP1_EN_PIN     23   // NEW: Enable Pin
+#define STEPS_PER_REV 200
+#define TOTAL_STEPS (STEPS_PER_REV * 2)   // 2 รอบ
 
 // Stepper 2 (Step/Dir/EN)
 #define STEP2_STEP_PIN   21
@@ -35,6 +37,47 @@ bool motor1State = false;     // DC Motor toggle ON/OFF
 
 int speedVal = 100;           // ค่า speed จาก Pi
 bool stopAll = false;         // STOP_ALL flag
+
+// stepper1 
+// หมุนไปข้างหน้า
+void rotateForward() {
+
+  Serial.println("Forward 2 rounds");
+  digitalWrite(STEP1_EN_PIN, LOW);
+  digitalWrite(STEP1_DIR_PIN, HIGH);
+
+  for (int i = 0; i < TOTAL_STEPS; i++) {
+
+    digitalWrite(STEP1_STEP_PIN, HIGH);
+    delayMicroseconds(800);
+
+    digitalWrite(STEP1_STEP_PIN, LOW);
+    delayMicroseconds(800);
+  }
+
+  digitalWrite(STEP1_EN_PIN, HIGH);
+  Serial.println("Done");
+}
+
+// หมุนถอยหลัง
+void rotateBackward() {
+
+  Serial.println("Backward 2 rounds");
+  digitalWrite(STEP1_EN_PIN, LOW);
+  digitalWrite(STEP1_DIR_PIN, LOW);
+
+  for (int i = 0; i < TOTAL_STEPS; i++) {
+
+    digitalWrite(STEP1_STEP_PIN, HIGH);
+    delayMicroseconds(800);
+
+    digitalWrite(STEP1_STEP_PIN, LOW);
+    delayMicroseconds(800);
+  }
+
+  digitalWrite(STEP1_EN_PIN, HIGH);
+  Serial.println("Done");
+}
 
 void stepperMove(int stepPin, int dirPin, int enPin, bool forward, int steps, int spd) {
   if (stopAll) return;
@@ -153,12 +196,12 @@ void loop() {
     }
     else if (key.equalsIgnoreCase("STEP1_FWD")) {
       int speedVal = valStr.toInt(); // 0..180
-      stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, true, 200, speedVal);
+      rotateForward();
       Serial.println("DONE");
     }
     else if (key.equalsIgnoreCase("STEP1_BWD")) {
       int speedVal = valStr.toInt(); // 0..180
-      stepperMove(STEP1_STEP_PIN, STEP1_DIR_PIN, STEP1_EN_PIN, false, 200, speedVal);
+      rotateBackward();
       Serial.println("DONE");
     }
     else if (key.equalsIgnoreCase("STEP2_45")) {
@@ -212,5 +255,3 @@ void loop() {
     Serial.println("Unknown command key.");
   }
 }
-
-
